@@ -1,40 +1,74 @@
-const mongoose = require("mongoose");
-const Score = require("./Score");
+const { User } = require("../models/user");
+const { Prediction } = require("../models/prediction");
 
-const MatchSchema = new mongoose.Schema(
-  {
-    teamOne: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
-    teamTwo: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
-    matchDate: { type: Date, required: true },
-    additionalDetails: { type: String },
-    declaredWinner: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' }, // Admin sets the winning team
-  },
-  { timestamps: true }
-);
+module.exports = (mongoose) => {
+    const Match = mongoose.model(
+        "match",
+        new mongoose.Schema(
+            {
+                sport: {
+                    type: String,
+                    required: true
+                },
+                homeTeam: {
+                    type: String,
+                    required: true
+                },
+                awayTeam: {
+                    type: String,
+                    required: true
+                },
+                matchDate: {
+                    type: Date,
+                    default: Date.now()
+                },
+                status: {
+                    type: String,
+                    enum: ["scheduled", "in-progress", "completed"],
+                    default: "scheduled"
+                },
+                declaredWinner: {
+                    type: String,
+                    default: null
+                }
+            },
+            { timestamps: true }
+        )
+    );
 
-// Hook to recalculate user scores when declaredWinner changes
-MatchSchema.pre("save", async function (next) {
-  if (this.isModified("declaredWinner")) {
-    try {
-      const matchId = this._id;
-      const declaredWinner = this.declaredWinner;
-
-      // Fetch all predictions for this match
-      const predictions = await Score.find({ match: matchId });
-
-      for (let prediction of predictions) {
-        if (prediction.prediction === declaredWinner) {
-          prediction.score = 2;
-        } else {
-          prediction.score = -1;
+    Match.pre("save", async function (next) {
+        // Only update scores when match status changes to completed or winner is set
+        if (!this.isModified("status") && !this.isModified("declaredWinner")) {
+            return next();
         }
-        await prediction.save();
-      }
-    } catch (error) {
-      console.error("Error updating scores:", error);
-    }
-  }
-  next();
-});
 
-module.exports = mongoose.model("Match", MatchSchema);
+        try {
+            const predictions = await Prediction.find({ matchId: this._id })
+                .populate("userId")
+                .exec();
+
+            for (const prediction of predictions) {
+                const user = prediction.user;
+                
+                // Calculate new score based on prediction accuracy
+                if (prediction.team === this.declaredWinner) {
+                    user.totalScore += 2;
+                } else {
+                    user.totalScore -= 1;
+                }
+
+                // Update the user's total score in database
+                await User.findByIdAndUpdate(user._id, { 
+                    $set: { totalScore: user.totalScore }
+                });
+            }
+
+            next();
+        } catch (error) {
+            console.error("Error updating scores:", error);
+            return next(error);
+        }
+    });
+
+    return Match;
+};
