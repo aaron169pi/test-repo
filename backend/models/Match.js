@@ -1,40 +1,21 @@
-const mongoose = require("mongoose");
-const Score = require("./Score");
-
-const MatchSchema = new mongoose.Schema(
+// Inside MatchSchema's pre('save') function:
+const updatedPredictions = await Prediction.updateMany(
+  { match: this._id },
   {
-    teamOne: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
-    teamTwo: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
-    matchDate: { type: Date, required: true },
-    additionalDetails: { type: String },
-    declaredWinner: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' }, // Admin sets the winning team
-  },
-  { timestamps: true }
-);
-
-// Hook to recalculate user scores when declaredWinner changes
-MatchSchema.pre("save", async function (next) {
-  if (this.isModified("declaredWinner")) {
-    try {
-      const matchId = this._id;
-      const declaredWinner = this.declaredWinner;
-
-      // Fetch all predictions for this match
-      const predictions = await Score.find({ match: matchId });
-
-      for (let prediction of predictions) {
-        if (prediction.prediction === declaredWinner) {
-          prediction.score = 2;
-        } else {
-          prediction.score = -1;
-        }
-        await prediction.save();
-      }
-    } catch (error) {
-      console.error("Error updating scores:", error);
+    $set: {
+      predictionResult: matchOutcome
     }
   }
-  next();
-});
+);
 
-module.exports = mongoose.model("Match", MatchSchema);
+for (let prediction of updatedPredictions) {
+  if (prediction.prediction === declaredWinner) {
+    // Correctly predicted the winner, add 2 points
+    user.score += 2;
+  } else {
+    // Incorrect prediction, deduct 1 point
+    user.score -= 1;
+  }
+  
+  await user.save();
+}
