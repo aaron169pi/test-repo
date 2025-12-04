@@ -1,76 +1,141 @@
-const express = require('express');
-const Score = require('../models/Score');
-const Match = require('../models/Match');
-const Team = require('../models/Team');
-const { authMiddleware } = require('../middleware/authMiddleware');
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { Trophy, Medal, Star, Loader2 } from "lucide-react";
 
-const router = express.Router();
+export default function Scoreboard() {
+  const [scores, setScores] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-router.get('/:matchId', async (req, res) => {
-  const { matchId } = req.params;
-  try {
-    // Find all predictions for the given match and populate user details and team details
-    const predictions = await Score.find({ match: matchId }).populate('user', 'username').populate('prediction', 'teamName');
-
-    // Group predictions by the predicted team name
-    const grouped = predictions.reduce((acc, curr) => {
-      const teamName = curr.prediction.teamName;
-      if (!acc[teamName]) {
-        acc[teamName] = [];
+  useEffect(() => {
+    const fetchScores = async () => {
+      try {
+        const { data } = await axios.get("/api/scoreboard");
+        setScores(data);
+      } catch (error) {
+        console.error("Error fetching scores:", error);
+      } finally {
+        setLoading(false);
       }
-      acc[teamName].push(curr.user.username);
-      return acc;
-    }, {});
+    };
 
-    res.json(grouped);
-  } catch (error) {
-    res.status(500).json({ msg: error.message });
-  }
-});
+    fetchScores();
+  }, []);
 
-
-// Endpoint to submit a prediction
-router.post('/', authMiddleware, async (req, res) => {
-  const { matchId, prediction } = req.body;
-  try {
-    // Find the match to check time restrictions
-    const match = await Match.findById(matchId);
-    if (!match) return res.status(404).json({ msg: 'Match not found' });
-
-    const matchStart = new Date(match.matchDate);
-
-    // Check if current time is before match start
-    const now = new Date();
-    if (now > new Date(matchStart.getTime())) {
-      return res.status(400).json({ msg: 'Prediction closed for this match' });
+  const getRankIcon = (rank) => {
+    switch (rank) {
+      case 1:
+        return <Trophy className="h-6 w-6 text-yellow-400" />;
+      case 2:
+        return <Medal className="h-6 w-6 text-gray-300" />;
+      case 3:
+        return <Medal className="h-6 w-6 text-amber-600" />;
+      default:
+        return <Star className="h-5 w-5 text-gray-600" />;
     }
+  };
 
-    // Check if a prediction already exists for this user and match
-    let scoreEntry = await Score.findOne({ user: req.user.id, match: matchId });
-    const team = await Team.findOne({ teamName: prediction });
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-4 sm:p-6 lg:p-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h2 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-amber-500 to-yellow-600 mb-2">
+            Leaderboard
+          </h2>
+          <p className="text-gray-400">Top players and their achievements</p>
+        </div>
 
-    if (!(team._id.equals(match.teamOne) || team._id.equals(match.teamTwo))) {
-      return res.status(400).json({ msg: 'Team not participating in this match' });
-    }
+        {/* Scoreboard Card */}
+        <div className="bg-gray-800/50 backdrop-blur-xl rounded-2xl shadow-2xl p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 space-x-4">
+              <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+              <span className="ml-3 text-gray-400 md:text-lg">Loading scores...</span>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl">
+              <div className="overflow-x-auto" style={{ maxHeight: "70vh" }}>
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-700/50 text-gray-300">
+                      <th className="sticky top-0 bg-gray-700/50 backdrop-blur-sm px-3 py-2 text-left font-bold text-sm md:text-base">Rank</th>
+                      <th className="sticky top-0 bg-gray-700/50 backdrop-blur-sm px-3 py-2 text-left font-bold text-sm md:text-base">Player</th>
+                      <th className="sticky top-0 bg-gray-700/50 backdrop-blur-sm px-3 py-2 text-right font-bold text-sm md:text-base">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-700/50">
+                    {scores.length > 0 ? (
+                      scores.map((player, index) => (
+                        <tr
+                          key={player.userId}
+                          className={`group transition-all duration-200 hover:bg-gray-700/30 ${index === 0 ? "bg-yellow-500/10" :
+                            index === 1 ? "bg-gray-400/10" :
+                              index === 2 ? "bg-amber-600/10" :
+                                "bg-gray-700/10"
+                            }`}
+                        >
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1 md:gap-2">
+                              {getRankIcon(index + 1)}
+                              <span className={`text-sm md:text-lg font-bold ${index === 0 ? "text-yellow-400" :
+                                index === 1 ? "text-gray-300" :
+                                  index === 2 ? "text-amber-600" : "text-gray-400"
+                                }`}>
+                                #{index + 1}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center">
+                              <div className={`h-8 w-8 md:h-10 md:w-10 rounded-full flex items-center justify-center text-white font-bold mr-2 md:mr-3 text-sm md:text-lg ${index === 0 ? "bg-gradient-to-br from-yellow-400 to-amber-600" :
+                                index === 1 ? "bg-gradient-to-br from-gray-300 to-gray-500" :
+                                  index === 2 ? "bg-gradient-to-br from-amber-600 to-amber-800" :
+                                    "bg-gradient-to-br from-blue-500 to-purple-600"
+                                }`}>
+                                {player.username.charAt(0).toUpperCase()}
+                              </div>
+                              <span className="text-white font-medium text-sm md:text-base group-hover:text-blue-400 transition-colors duration-200">
+                                {player.username}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div className={`inline-flex items-center px-3 py-1 md:px-4 md:py-2 rounded-full ${index === 0 ? "bg-yellow-500/20 text-yellow-400" :
+                              index === 1 ? "bg-gray-500/20 text-gray-300" :
+                                index === 2 ? "bg-amber-600/20 text-amber-500" :
+                                  "bg-blue-500/20 text-blue-400"
+                              }`}>
+                              <span className="text-base md:text-2xl font-bold mr-1">
+                                {player.totalScore.toLocaleString()}
+                              </span>
+                              <span className="text-xs md:text-sm opacity-75">pts</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="px-3 py-6 md:px-6 md:py-8 text-center text-gray-400">
+                          <div className="flex flex-col items-center gap-1 md:gap-2">
+                            <Trophy className="h-6 w-6 md:h-8 md:w-8 text-gray-600" />
+                            <p className="text-sm md:text-base">No scores available yet.</p>
+                            <p className="text-xs md:text-sm">Be the first to make it to the leaderboard!</p>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
 
-    if (scoreEntry) {
-      // Update existing prediction if needed
-      scoreEntry.prediction = team._id;
-      await scoreEntry.save();
-      return res.json({ msg: 'Prediction updated', scoreEntry });
-    }
-
-    // Create new prediction entry
-    scoreEntry = new Score({
-      user: req.user.id,
-      match: matchId,
-      prediction: team._id,
-    });
-    await scoreEntry.save();
-    res.status(201).json({ msg: 'Prediction submitted', scoreEntry });
-  } catch (error) {
-    res.status(500).json({ msg: error.message });
-  }
-});
-
-module.exports = router;
+        {/* Footer Note */}
+        <div className="mt-6 text-center text-gray-500 text-sm">
+          Scores are updated in real-time
+        </div>
+      </div>
+    </div>
+  );
+}
