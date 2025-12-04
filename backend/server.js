@@ -1,37 +1,32 @@
 const express = require('express');
-const connectDB = require('./config/db');
-const path = require("path");
-require('dotenv').config();
+const cors = require('cors');
+const mongoose = require('mongoose');
+const authMiddleware = require('./middleware/authMiddleware');
 
 const app = express();
 
-if (process.env.NODE_ENV === "development") {
-  const cors = require('cors');
-  app.use(cors());
-}
-
-// middleware
+// Middleware
+app.use(cors()); // Enable CORS for all routes
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Connect to MongoDB
-connectDB();
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/matches', require('./routes/matches'));
-app.use('/api/scoreboard', require('./routes/scoreboard'));
-app.use('/api/predictions', require('./routes/matchPredictions'));
-app.use('/api/teams', require('./routes/teams'));
+const authRoutes = require('./routes/auth');
+const matchRoutes = require('./routes/matches');
+const scoreboardRoutes = require('./routes/scoreboard');
+const predictionRoutes = require('./routes/matchPredictions');
 
-app.use(express.static(path.join(__dirname, "../frontend/dist")));
-app.get("*", (req, res) => {
-  if (req.path.startsWith("/api")) return; // Prevents API routes from being overridden
-  res.sendFile(path.join(__dirname, "../frontend/dist", "index.html"));
-});
+app.use('/api/auth', authRoutes);
+app.use('/api/matches', matchRoutes);
+app.use('/api/scoreboard', scoreboardRoutes);
+app.use('/api/predictions', predictionRoutes);
 
-// Start Server
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error('Could not connect to MongoDB', err));
+
 const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
