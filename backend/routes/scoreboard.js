@@ -1,42 +1,41 @@
-const express = require('express');
-const Score = require('../models/Score');
+const mongoose = require("mongoose");
+const Score = require("./Score");
 
-const router = express.Router();
+const MatchSchema = new mongoose.Schema(
+  {
+    teamOne: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
+    teamTwo: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
+    matchDate: { type: Date, required: true },
+    additionalDetails: { type: String },
+    declaredWinner: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' }, // Admin sets the winning team
+  },
+  { timestamps: true }
+);
 
-router.get('/', async (req, res) => {
-  try {
-    // Aggregate scores for each user, summing up the "score" field.
-    const scoreboard = await Score.aggregate([
-      {
-        $group: {
-          _id: "$user",
-          totalScore: { $sum: "$score" }
+// Hook to recalculate user scores when declaredWinner changes
+MatchSchema.pre("save", async function (next) {
+  if (this.isModified("declaredWinner")) {
+    try {
+      const matchId = this._id;
+      const declaredWinner = this.declaredWinner;
+
+      // Fetch all predictions for this match
+      const predictions = await Score.find({ match: matchId });
+
+      for (let prediction of predictions) {
+        // Use .equals() for ObjectId comparison to correctly detect a win
+        if (declaredWinner && prediction.prediction.equals(declaredWinner)) {
+          prediction.score = 2;
+        } else {
+          prediction.score = -1;
         }
-      },
-      // Lookup user details from the users collection.
-      {
-        $lookup: {
-          from: "users", // collection name (MongoDB auto-lowercases model name)
-          localField: "_id",
-          foreignField: "_id",
-          as: "user"
-        }
-      },
-      { $unwind: "$user" },
-      {
-        $project: {
-          _id: 0,
-          userId: "$user._id",
-          username: "$user.username",
-          totalScore: 1
-        }
-      },
-      { $sort: { totalScore: -1 } }
-    ]);
-    res.json(scoreboard);
-  } catch (error) {
-    res.status(500).json({ msg: error.message });
+        await prediction.save();
+      }
+    } catch (error) {
+      console.error("Error updating scores:", error);
+    }
   }
+  next();
 });
 
-module.exports = router;
+module.exports = mongoose.model("Match", MatchSchema);

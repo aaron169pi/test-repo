@@ -23,7 +23,8 @@ MatchSchema.pre("save", async function (next) {
       const predictions = await Score.find({ match: matchId });
 
       for (let prediction of predictions) {
-        if (prediction.prediction === declaredWinner) {
+        // Use .equals() for ObjectId comparison to correctly detect a win
+        if (prediction.prediction.equals(declaredWinner)) {
           prediction.score = 2;
         } else {
           prediction.score = -1;

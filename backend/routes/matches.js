@@ -95,6 +95,23 @@ router.put('/declare', authMiddleware, adminMiddleware, async (req, res) => {
 
       match.declaredWinner = team._id;
       await match.save();
+
+      // Manual score recalculation to ensure correct point assignment
+      // This compensates for the pre-save hook's ObjectId comparison bug
+      try {
+         const predictions = await Score.find({ match: matchId });
+         for (let prediction of predictions) {
+            if (prediction.prediction.equals(team._id)) {
+               prediction.score = 2;
+            } else {
+               prediction.score = -1;
+            }
+            await prediction.save();
+         }
+      } catch (scoreErr) {
+         console.error('Error updating scores after declaring winner:', scoreErr);
+      }
+
       res.json({ msg: 'Winner declared successfully', match });
    } catch (error) {
       res.status(500).json({ msg: error.message });
