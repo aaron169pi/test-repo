@@ -1,40 +1,77 @@
-const mongoose = require("mongoose");
-const Score = require("./Score");
+const express = require('express');
+const Score = require('../models/Score');
+const Match = require('../models/Match');
+const Team = require('../models/Team');
+const { authMiddleware } = require('../middleware/authMiddleware');
 
-const MatchSchema = new mongoose.Schema(
-  {
-    teamOne: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
-    teamTwo: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
-    matchDate: { type: Date, required: true },
-    additionalDetails: { type: String },
-    declaredWinner: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' }, // Admin sets the winning team
-  },
-  { timestamps: true }
-);
+const router = express.Router();
 
-// Hook to recalculate user scores when declaredWinner changes
-MatchSchema.pre("save", async function (next) {
-  if (this.isModified("declaredWinner")) {
-    try {
-      const matchId = this._id;
-      const declaredWinner = this.declaredWinner;
+router.get('/:matchId', async (req, res) => {
+  const { matchId } = req.params;
+  try {
+    // Find all predictions for the given match and populate user details and team details
+    const predictions = await Score.find({ match: matchId }).populate('user', 'username').populate('prediction', 'teamName');
 
-      // Fetch all predictions for this match
-      const predictions = await Score.find({ match: matchId });
-
-      for (let prediction of predictions) {
-        if (prediction.prediction === declaredWinner) {
-          prediction.score = 2;
-        } else {
-          prediction.score = -1;
-        }
-        await prediction.save();
+    // Group predictions by the predicted team name
+    const grouped = predictions.reduce((acc, curr) => {
+      const teamName = curr.prediction.teamName;
+      if (!acc[teamName]) {
+        acc[teamName] = [];
       }
-    } catch (error) {
-      console.error("Error updating scores:", error);
-    }
+      acc[teamName].push(curr.user.username);
+      return acc;
+    }, {});
+
+    res.json(grouped);
+  } catch (error) {
+    res.status(500).json({ msg: error.message });
   }
-  next();
 });
 
-module.exports = mongoose.model("Match", MatchSchema);
+// Endpoint to submit a prediction
+router.post('/', authMiddleware, async (req, res) => {
+  const { matchId, prediction } = req.body;
+  try {
+    // Find the match to check time restrictions and teams
+    const match = await Match.findById(matchId).populate('teamOne').populate('teamTwo');
+    if (!match) return res.status(404).json({ msg: 'Match not found' });
+
+    const matchStart = new Date(match.matchDate);
+
+    // Check if current time is before match start
+    const now = new Date();
+    if (now > new Date(matchStart.getTime())) {
+      return res.status(400).json({ msg: 'Prediction closed for this match' });
+    }
+
+    // Check if a prediction already exists for this user and match
+    let scoreEntry = await Score.findOne({ user: req.user.id, match: matchId });
+    const team = await Team.findOne({ teamName: prediction });
+
+    if (!team) return res.status(400).json({ msg: 'Team not found' });
+
+    if (!(team._id.equals(match.teamOne._id) || team._id.equals(match.teamTwo._id))) {
+      return res.status(400).json({ msg: 'Team not participating in this match' });
+    }
+
+    if (scoreEntry) {
+      // Update existing prediction if needed
+      scoreEntry.prediction = team._id;
+      await scoreEntry.save();
+      return res.json({ msg: 'Prediction updated', scoreEntry });
+    }
+
+    // Create new prediction entry
+    scoreEntry = new Score({
+      user: req.user.id,
+      match: matchId,
+      prediction: team._id,
+    });
+    await scoreEntry.save();
+    res.status(201).json({ msg: 'Prediction submitted', scoreEntry });
+  } catch (error) {
+    res.status(500).json({ msg: error.message });
+  }
+});
+
+module.exports = router;
