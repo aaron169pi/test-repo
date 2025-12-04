@@ -2,72 +2,63 @@ const express = require('express');
 const Score = require('../models/Score');
 const Match = require('../models/Match');
 const Team = require('../models/Team');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { body, validationResult } = require('express-validator');
+const auth = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/:matchId', async (req, res) => {
-  const { matchId } = req.params;
+// Get all predictions
+router.get('/', async (req, res) => {
   try {
-    // Find all predictions for the given match and populate user details and team details
-    const predictions = await Score.find({ match: matchId }).populate('user', 'username').populate('prediction', 'teamName');
-
-    // Group predictions by the predicted team name
-    const grouped = predictions.reduce((acc, curr) => {
-      const teamName = curr.prediction.teamName;
-      if (!acc[teamName]) {
-        acc[teamName] = [];
-      }
-      acc[teamName].push(curr.user.username);
-      return acc;
-    }, {});
-
-    res.json(grouped);
+    const scores = await Score.find().populate('user').populate('match').exec();
+    res.json(scores);
   } catch (error) {
     res.status(500).json({ msg: error.message });
   }
 });
 
+// Submit a prediction
+router.post('/', [
+  auth,
+  body('matchId', 'Match ID is required').isMongoId(),
+  body('teamName', 'Team name is required').notEmpty()
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
 
-// Endpoint to submit a prediction
-router.post('/', authMiddleware, async (req, res) => {
-  const { matchId, prediction } = req.body;
   try {
-    // Find the match to check time restrictions
+    const { matchId, teamName } = req.body;
+    const userId = req.user.id;
+
+    // Check if match exists
     const match = await Match.findById(matchId);
-    if (!match) return res.status(404).json({ msg: 'Match not found' });
-
-    const matchStart = new Date(match.matchDate);
-
-    // Check if current time is before match start
-    const now = new Date();
-    if (now > new Date(matchStart.getTime())) {
-      return res.status(400).json({ msg: 'Prediction closed for this match' });
+    if (!match) {
+      return res.status(404).json({ msg: 'Match not found' });
     }
 
-    // Check if a prediction already exists for this user and match
-    let scoreEntry = await Score.findOne({ user: req.user.id, match: matchId });
-    const team = await Team.findOne({ teamName: prediction });
-
-    if (!(team._id.equals(match.teamOne) || team._id.equals(match.teamTwo))) {
-      return res.status(400).json({ msg: 'Team not participating in this match' });
+    // Check if team exists and is part of the match
+    const team = await Team.findOne({ name: teamName });
+    if (!team || (!match.team1.equals(team._id) && !match.team2.equals(team._id))) {
+      return res.status(404).json({ msg: 'Team not found or not part of this match' });
     }
 
-    if (scoreEntry) {
-      // Update existing prediction if needed
-      scoreEntry.prediction = team._id;
-      await scoreEntry.save();
-      return res.json({ msg: 'Prediction updated', scoreEntry });
+    // Check if user has already made a prediction for this match
+    const existingPrediction = await Score.findOne({ user: userId, match: matchId });
+    if (existingPrediction) {
+      return res.status(400).json({ msg: 'You have already made a prediction for this match' });
     }
 
-    // Create new prediction entry
-    scoreEntry = new Score({
-      user: req.user.id,
+    // Create new prediction
+    const score = new Score({
+      user: userId,
       match: matchId,
-      prediction: team._id,
+      predictedTeam: team._id
     });
-    await scoreEntry.save();
-    res.status(201).json({ msg: 'Prediction submitted', scoreEntry });
+
+    await score.save();
+    res.status(201).json(score);
   } catch (error) {
     res.status(500).json({ msg: error.message });
   }
