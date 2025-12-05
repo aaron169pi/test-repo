@@ -24,11 +24,12 @@ MatchSchema.pre("save", async function (next) {
 
       for (let prediction of predictions) {
         if (prediction.prediction === declaredWinner) {
-          prediction.score = 2;
+          prediction.score += 2; // Add 2 points for correct prediction
         } else {
-          prediction.score = -1;
+          prediction.score -= 1; // Subtract 1 point for incorrect prediction
         }
         await prediction.save();
+        console.log(`Updated score for prediction ${prediction._id} to ${prediction.score}`);
       }
     } catch (error) {
       console.error("Error updating scores:", error);
