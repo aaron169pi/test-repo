@@ -20,15 +20,21 @@ MatchSchema.pre("save", async function (next) {
       const declaredWinner = this.declaredWinner;
 
       // Fetch all predictions for this match
-      const predictions = await Score.find({ match: matchId });
+      const predictions = await Score.find({ match: matchId })
+        .populate('predictedBy', 'username');
 
       for (let prediction of predictions) {
-        if (prediction.prediction === declaredWinner) {
-          prediction.score = 2;
+        if (!prediction.createdAt) continue; // Skip invalid predictions
+
+        // Only score predictions made before the match started
+        if (prediction.createdAt < this.matchDate) {
+          prediction.score = prediction.prediction === declaredWinner ? 2 : -1;
+          await prediction.save();
         } else {
-          prediction.score = -1;
+          // Partial points for in-game and post-game predictions
+          prediction.score = prediction.prediction === declaredWinner ? 1 : 0;
+          await prediction.save();
         }
-        await prediction.save();
       }
     } catch (error) {
       console.error("Error updating scores:", error);

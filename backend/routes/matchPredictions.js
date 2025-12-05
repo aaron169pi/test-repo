@@ -60,11 +60,13 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.json({ msg: 'Prediction updated', scoreEntry });
     }
 
-    // Create new prediction entry
+    // Create new prediction entry with timestamp
+    const nowTime = new Date();
     scoreEntry = new Score({
       user: req.user.id,
       match: matchId,
       prediction: team._id,
+      timestamp: nowTime,
     });
     await scoreEntry.save();
     res.status(201).json({ msg: 'Prediction submitted', scoreEntry });
