@@ -18,17 +18,25 @@ MatchSchema.pre("save", async function (next) {
     try {
       const matchId = this._id;
       const declaredWinner = this.declaredWinner;
+      const currentDate = new Date(); // Get current date
+      
+      // Only process scores if match has started
+      if (currentDate >= this.matchDate) {
+        // Fetch all predictions for this match
+        const predictions = await Score.find({ match: matchId });
 
-      // Fetch all predictions for this match
-      const predictions = await Score.find({ match: matchId });
-
-      for (let prediction of predictions) {
-        if (prediction.prediction === declaredWinner) {
-          prediction.score = 2;
-        } else {
-          prediction.score = -1;
+        for (let prediction of predictions) {
+          if (prediction.prediction === declaredWinner) {
+            prediction.score = 2;
+          } else {
+            prediction.score = -1;
+          }
+          await prediction.save();
         }
-        await prediction.save();
+      } else {
+        // Skip score updates if match hasn't started yet
+        next();
+        return;
       }
     } catch (error) {
       console.error("Error updating scores:", error);
