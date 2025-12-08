@@ -45,6 +45,11 @@ router.post('/', authMiddleware, async (req, res) => {
       return res.status(400).json({ msg: 'Prediction closed for this match' });
     }
 
+    // Check if match has not started yet
+    if (now < new Date(matchStart.getTime())) {
+      return res.status(400).json({ msg: 'Predictions cannot be made before match start' });
+    }
+
     // Check if a prediction already exists for this user and match
     let scoreEntry = await Score.findOne({ user: req.user.id, match: matchId });
     const team = await Team.findOne({ teamName: prediction });
